@@ -1,4 +1,4 @@
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
 use rand::Rng;
 use regex::Regex;
@@ -17,7 +17,7 @@ struct ExchangeTitle {
 struct Exchange {
 	title: String,
 	id: i32,
-	token: String,
+	passphrase: String,
 	stage: Stage,
 	submissions: HashMap<String, Vec<Vec<String>>>,
 	votes: HashMap<String, Vec<Vec<String>>>,
@@ -45,7 +45,7 @@ async fn create_exchange(
 	let exchange = Exchange {
 		title: title.clone(),
 		id,
-		token: generate_passphrase(),
+		passphrase: generate_passphrase(),
 		stage: Stage::Submission,
 		submissions: HashMap::new(),
 		votes: HashMap::new(),
@@ -56,6 +56,26 @@ async fn create_exchange(
 	let contents = serde_json::to_string_pretty(&exchange)?;
 	fs::write(path, contents)?;
 	Ok(HttpResponse::Created().json(exchange))
+}
+
+#[delete("/delete-exchange/{id}/{passphrase}")]
+async fn delete_exchange(
+	path: web::Path<(i32, String)>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(exchange) = exchanges.get(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::NonAuthoritativeInformation().body("Invalid passphrase"));
+		}
+		exchanges.remove(&id);
+		let path = format!("./exchanges/{id}.json");
+		fs::remove_file(path)?;
+
+		Ok(HttpResponse::Ok().body("Exchange deleted"))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
 }
 
 #[actix_web::main]
@@ -79,6 +99,7 @@ async fn main() -> std::io::Result<()> {
 		App::new()
 			.app_data(web::Data::new(exchanges.clone()))
 			.service(create_exchange)
+			.service(delete_exchange)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
