@@ -1,0 +1,29 @@
+[package]
+name = "fimfex"
+version = "0.1.0"
+description = "Backend server for hosting FIMFiction story exchanges."
+repository = "https://github.com/PseudoBob-Delightus/fimfex-bk"
+authors = ["Silk Rose", "Meadowsys"]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+actix-web = { version = "4.9.0" }
+pony = { git = "https://github.com/SilkRose/Pony" }
+regex = { version = "1.10.6" }
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = { version = "1.0.128", features = ["preserve_order"] }
+
+[profile.dev]
+opt-level = 0
+debug-assertions = true
+debug = true
+incremental = true
+
+[profile.release]
+strip = true
+opt-level = 3
+debug-assertions = false
+lto = true
+codegen-units = 1
