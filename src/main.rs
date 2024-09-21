@@ -1,4 +1,4 @@
-use actix_web::{delete, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
 use rand::Rng;
 use regex::Regex;
@@ -13,6 +13,11 @@ struct ExchangeTitle {
 	title: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ExchangeStage {
+	stage: Stage,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Exchange {
 	title: String,
@@ -24,11 +29,12 @@ struct Exchange {
 	results: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 enum Stage {
 	Submission,
 	Voting,
 	Selection,
+	Frozen,
 }
 
 #[post("/create-exchange")]
@@ -58,6 +64,38 @@ async fn create_exchange(
 	Ok(HttpResponse::Created().json(exchange))
 }
 
+#[patch("/update-exchange/{id}/{passphrase}")]
+async fn change_stage(
+	path: web::Path<(i32, String)>, stage: web::Query<ExchangeStage>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let stage = stage.into_inner().stage;
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(ref mut exchange) = exchanges.get_mut(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
+		}
+		if exchange.stage == stage {
+			return Ok(HttpResponse::NoContent().body("Stage is identical to request"));
+		}
+		if exchange.stage == Stage::Frozen {
+			return Ok(
+				HttpResponse::Locked().body("This exchange is frozen and cannot be modified")
+			);
+		}
+
+		exchange.stage = stage;
+		let path = format!("./exchanges/{id}.json");
+		let contents = serde_json::to_string_pretty(&exchange)?;
+		fs::write(path, contents)?;
+
+		Ok(HttpResponse::Ok().body("Stage updated"))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[delete("/delete-exchange/{id}/{passphrase}")]
 async fn delete_exchange(
 	path: web::Path<(i32, String)>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
@@ -66,7 +104,7 @@ async fn delete_exchange(
 	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
 	if let Some(exchange) = exchanges.get(&id) {
 		if exchange.passphrase != passphrase {
-			return Ok(HttpResponse::NonAuthoritativeInformation().body("Invalid passphrase"));
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
 		}
 		exchanges.remove(&id);
 		let path = format!("./exchanges/{id}.json");
@@ -100,6 +138,7 @@ async fn main() -> std::io::Result<()> {
 			.app_data(web::Data::new(exchanges.clone()))
 			.service(create_exchange)
 			.service(delete_exchange)
+			.service(change_stage)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
