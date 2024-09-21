@@ -626,6 +626,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "pony",
+ "rand",
  "regex",
  "serde",
  "serde_json",
