@@ -458,3 +458,30 @@ fn generate_passphrase() -> String {
 		format!("{char1}{action}{char2}")
 	}
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Count {
+	votes: i32,
+	priorities: Vec<i32>,
+}
+
+fn count_votes(votes: HashMap<String, Vec<Vote>>) {
+	let mut submissions = HashMap::<Vec<String>, Count>::new();
+	for (_, votes) in votes {
+		for vote in votes {
+			if let Some(ref mut entry) = submissions.get_mut(&vote.entry.stories) {
+				entry.votes += 1;
+				entry.priorities.push(vote.priority);
+			} else {
+				let ballot = Count {
+					votes: 1,
+					priorities: vec![vote.priority],
+				};
+				submissions.insert(vote.entry.stories, ballot);
+			}
+		}
+	}
+	for candidate in submissions {
+		//
+	}
+}
