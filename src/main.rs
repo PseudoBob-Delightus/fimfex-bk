@@ -19,6 +19,12 @@ struct ExchangeStage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct Submission {
+	name: String,
+	stories: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Exchange {
 	title: String,
 	id: i32,
@@ -29,12 +35,12 @@ struct Exchange {
 	results: HashMap<String, Vec<Entry>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct Entry {
 	stories: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct Vote {
 	entry: Entry,
 	priority: i32,
@@ -75,7 +81,7 @@ async fn create_exchange(
 	Ok(HttpResponse::Created().json(exchange))
 }
 
-#[patch("/update-exchange/{id}/{passphrase}")]
+#[patch("/change-state/{id}/{passphrase}")]
 async fn change_stage(
 	path: web::Path<(i32, String)>, stage: web::Query<ExchangeStage>,
 	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
@@ -125,6 +131,48 @@ async fn change_stage(
 	}
 }
 
+#[post("/add-stories/{id}")]
+async fn add_submission(
+	path: web::Path<i32>, entry: web::Json<Submission>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let id = path.into_inner();
+	let submission = entry.into_inner();
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(ref mut exchange) = exchanges.get_mut(&id) {
+		if exchange.stage != Stage::Submission {
+			return Ok(HttpResponse::BadRequest().body("Submission stage is over"));
+		}
+		let stories = submission
+			.stories
+			.iter()
+			.map(|i| Entry {
+				stories: i.to_vec(),
+			})
+			.collect::<Vec<_>>();
+		if let Some(ref mut entries) = exchange.submissions.get_mut(&submission.name) {
+			'outer: for set in stories.iter() {
+				for entry in entries.iter() {
+					if set == entry {
+						continue 'outer;
+					}
+				}
+				entries.push(set.clone());
+			}
+		} else {
+			exchange.submissions.insert(submission.name, stories);
+		}
+
+		let path = format!("./exchanges/{id}.json");
+		let contents = serde_json::to_string_pretty(&exchange)?;
+		fs::write(path, contents)?;
+
+		Ok(HttpResponse::Ok().body("Submission accepted"))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[delete("/delete-exchange/{id}/{passphrase}")]
 async fn delete_exchange(
 	path: web::Path<(i32, String)>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
@@ -168,6 +216,7 @@ async fn main() -> std::io::Result<()> {
 			.service(create_exchange)
 			.service(delete_exchange)
 			.service(change_stage)
+			.service(add_submission)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
