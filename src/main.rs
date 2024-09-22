@@ -18,6 +18,11 @@ struct ExchangeStage {
 	stage: Stage,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ExchangeVote {
+	name: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Submission {
 	name: String,
@@ -335,6 +340,31 @@ async fn cast_votes(
 	}
 }
 
+#[delete("/delete-votes/{id}/{passphrase}")]
+async fn delete_votes(
+	path: web::Path<(i32, String)>, name: web::Query<ExchangeVote>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let name = name.into_inner();
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(ref mut exchange) = exchanges.get_mut(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
+		}
+		if exchange.votes.remove(&name.name).is_none() {
+			return Ok(HttpResponse::NotFound().body("Voter not found"));
+		}
+		let path = format!("./exchanges/{id}.json");
+		let contents = serde_json::to_string_pretty(&exchange)?;
+		fs::write(path, contents)?;
+
+		Ok(HttpResponse::Ok().body("Votes deleted"))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
 	let exchanges = Arc::new(Mutex::new(HashMap::<i32, Exchange>::new()));
@@ -363,6 +393,7 @@ async fn main() -> std::io::Result<()> {
 			.service(get_exchange_admin)
 			.service(get_exchange)
 			.service(cast_votes)
+			.service(delete_votes)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
