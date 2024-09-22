@@ -40,7 +40,7 @@ struct Vote {
 	priority: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 enum Stage {
 	Submission,
 	Voting,
@@ -90,28 +90,28 @@ async fn change_stage(
 		if exchange.stage == stage {
 			return Ok(HttpResponse::BadRequest().body("Stage is identical to request"));
 		}
-		if exchange.stage == Stage::Frozen {
-			return Ok(
-				HttpResponse::Locked().body("This exchange is frozen and cannot be modified")
-			);
-		}
-		match exchange.stage {
-			Stage::Submission => {
-				if stage == Stage::Selection || stage == Stage::Frozen {
-					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
+
+		match (exchange.stage, stage) {
+			(Stage::Submission, Stage::Voting) => {
+				if exchange.submissions.is_empty() {
+					return Ok(HttpResponse::BadRequest().body("No submission to vote on"));
 				}
 			}
-			Stage::Voting => {
-				if stage == Stage::Frozen {
-					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
+			(Stage::Voting, Stage::Submission) => exchange.votes = HashMap::new(),
+			(Stage::Voting, Stage::Selection) => {
+				if exchange.votes.is_empty() {
+					return Ok(HttpResponse::BadRequest().body("No votes to count"));
 				}
+				// TODO: Add voting algorithm
 			}
-			Stage::Selection => {
-				if stage == Stage::Submission {
-					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
-				}
+			(Stage::Selection, Stage::Voting) => exchange.results = HashMap::new(),
+			(Stage::Selection, Stage::Frozen) => {} // Results are final
+			(Stage::Frozen, _) => {
+				return Ok(
+					HttpResponse::Locked().body("This exchange is frozen and cannot be modified")
+				)
 			}
-			_ => {}
+			(_, _) => return Ok(HttpResponse::BadRequest().body("Invalid stage transition")),
 		}
 
 		exchange.stage = stage;
