@@ -1,4 +1,4 @@
-use actix_web::{delete, patch, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, get, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
 use rand::Rng;
 use regex::Regex;
@@ -253,6 +253,23 @@ async fn delete_exchange(
 	}
 }
 
+#[get("/get-exchange/{id}/{passphrase}")]
+async fn get_exchange_admin(
+	path: web::Path<(i32, String)>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(exchange) = exchanges.get(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
+		}
+
+		Ok(HttpResponse::Ok().json(exchange))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
 	let exchanges = Arc::new(Mutex::new(HashMap::<i32, Exchange>::new()));
@@ -278,6 +295,7 @@ async fn main() -> std::io::Result<()> {
 			.service(change_stage)
 			.service(add_submission)
 			.service(delete_submission)
+			.service(get_exchange_admin)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
