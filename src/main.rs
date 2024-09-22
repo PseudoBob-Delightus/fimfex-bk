@@ -24,9 +24,20 @@ struct Exchange {
 	id: i32,
 	passphrase: String,
 	stage: Stage,
-	submissions: HashMap<String, Vec<Vec<String>>>,
-	votes: HashMap<String, Vec<Vec<String>>>,
-	results: Vec<String>,
+	submissions: HashMap<String, Vec<Entry>>,
+	votes: HashMap<String, Vec<Vote>>,
+	results: HashMap<String, Vec<Entry>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Entry {
+	stories: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Vote {
+	entry: Entry,
+	priority: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -55,7 +66,7 @@ async fn create_exchange(
 		stage: Stage::Submission,
 		submissions: HashMap::new(),
 		votes: HashMap::new(),
-		results: Vec::new(),
+		results: HashMap::new(),
 	};
 	exchanges.insert(id, exchange.clone());
 	let path = format!("./exchanges/{id}.json");
@@ -77,12 +88,30 @@ async fn change_stage(
 			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
 		}
 		if exchange.stage == stage {
-			return Ok(HttpResponse::NoContent().body("Stage is identical to request"));
+			return Ok(HttpResponse::BadRequest().body("Stage is identical to request"));
 		}
 		if exchange.stage == Stage::Frozen {
 			return Ok(
 				HttpResponse::Locked().body("This exchange is frozen and cannot be modified")
 			);
+		}
+		match exchange.stage {
+			Stage::Submission => {
+				if stage == Stage::Selection || stage == Stage::Frozen {
+					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
+				}
+			}
+			Stage::Voting => {
+				if stage == Stage::Frozen {
+					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
+				}
+			}
+			Stage::Selection => {
+				if stage == Stage::Submission {
+					return Ok(HttpResponse::BadRequest().body("Invalid stage transition"));
+				}
+			}
+			_ => {}
 		}
 
 		exchange.stage = stage;
