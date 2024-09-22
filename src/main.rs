@@ -40,6 +40,15 @@ struct Exchange {
 	results: HashMap<String, Vec<Entry>>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ExchangeReturn {
+	title: String,
+	id: i32,
+	stage: Stage,
+	submissions: Option<HashMap<String, Vec<Entry>>>,
+	results: Option<HashMap<String, Vec<Entry>>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct Entry {
 	stories: Vec<String>,
@@ -270,6 +279,33 @@ async fn get_exchange_admin(
 	}
 }
 
+#[get("/get-exchange/{id}")]
+async fn get_exchange(
+	path: web::Path<i32>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let id = path.into_inner();
+	let exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(exchange) = exchanges.get(&id) {
+		let (sub, res) = match exchange.stage {
+			Stage::Submission | Stage::Selection => (None, None),
+			Stage::Voting => (Some(exchange.submissions.clone()), None),
+			Stage::Frozen => (None, Some(exchange.results.clone())),
+		};
+
+		let result = ExchangeReturn {
+			title: exchange.title.clone(),
+			id,
+			stage: exchange.stage,
+			submissions: sub,
+			results: res,
+		};
+
+		Ok(HttpResponse::Ok().json(result))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
 	let exchanges = Arc::new(Mutex::new(HashMap::<i32, Exchange>::new()));
@@ -296,6 +332,7 @@ async fn main() -> std::io::Result<()> {
 			.service(add_submission)
 			.service(delete_submission)
 			.service(get_exchange_admin)
+			.service(get_exchange)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
