@@ -25,6 +25,11 @@ struct Submission {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct Deletions {
+	stories: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Exchange {
 	title: String,
 	id: i32,
@@ -173,6 +178,61 @@ async fn add_submission(
 	}
 }
 
+#[delete("/delete-stories/{id}/{passphrase}")]
+async fn delete_submission(
+	path: web::Path<(i32, String)>, entry: web::Json<Deletions>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let deletions = entry.into_inner();
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(ref mut exchange) = exchanges.get_mut(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
+		}
+		if exchange.stage != Stage::Submission {
+			return Ok(HttpResponse::BadRequest().body("Submission stage is over"));
+		}
+		if deletions.stories.is_empty() {
+			return Ok(HttpResponse::BadRequest().body("No submission sent"));
+		} else if exchange.submissions.is_empty() {
+			return Ok(HttpResponse::BadRequest().body("No submission to delete"));
+		}
+		let deletions = deletions
+			.stories
+			.iter()
+			.map(|i| Entry {
+				stories: i.to_vec(),
+			})
+			.collect::<Vec<_>>();
+		let mut submissions = HashMap::<String, Vec<Entry>>::new();
+
+		for (name, stories) in exchange.submissions.clone() {
+			let mut entries: Vec<Entry> = Vec::new();
+			'outer: for story in stories {
+				for deletion in &deletions {
+					if story == *deletion {
+						continue 'outer;
+					}
+				}
+				entries.push(story);
+			}
+			if !entries.is_empty() {
+				submissions.insert(name, entries);
+			}
+		}
+
+		exchange.submissions = submissions;
+		let path = format!("./exchanges/{id}.json");
+		let contents = serde_json::to_string_pretty(&exchange)?;
+		fs::write(path, contents)?;
+
+		Ok(HttpResponse::Ok().body("Submissions deleted"))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[delete("/delete-exchange/{id}/{passphrase}")]
 async fn delete_exchange(
 	path: web::Path<(i32, String)>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
@@ -217,6 +277,7 @@ async fn main() -> std::io::Result<()> {
 			.service(delete_exchange)
 			.service(change_stage)
 			.service(add_submission)
+			.service(delete_submission)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
