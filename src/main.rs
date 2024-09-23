@@ -20,7 +20,7 @@ struct ExchangeStage {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ExchangeVote {
+struct User {
 	name: String,
 }
 
@@ -57,7 +57,7 @@ struct ExchangeReturn {
 	title: String,
 	id: i32,
 	stage: Stage,
-	submissions: Option<HashMap<String, Vec<Entry>>>,
+	submissions: Option<Vec<Entry>>,
 	results: Option<HashMap<String, Vec<Entry>>>,
 }
 
@@ -293,15 +293,44 @@ async fn get_exchange_admin(
 
 #[get("/get-exchange/{id}")]
 async fn get_exchange(
-	path: web::Path<i32>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+	path: web::Path<i32>, name: Option<web::Query<User>>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
 ) -> Result<impl Responder, Box<dyn std::error::Error>> {
 	let id = path.into_inner();
 	let exchanges = data.lock().map_err(|_| "Failed to lock data")?;
 	if let Some(exchange) = exchanges.get(&id) {
 		let (sub, res) = match exchange.stage {
 			Stage::Submission | Stage::Selection => (None, None),
-			Stage::Voting => (Some(exchange.submissions.clone()), None),
 			Stage::Frozen => (None, Some(exchange.results.clone())),
+			Stage::Voting => {
+				if let Some(query) = name {
+					let name = query.into_inner().name;
+					let submissions = exchange
+						.votes
+						.iter()
+						.flat_map(|v| v.1)
+						.map(|entry| entry.entry.clone())
+						.collect::<Vec<_>>();
+					if let Some(votes) = exchange.votes.get(&name) {
+						let options = submissions
+							.into_iter()
+							.filter(|entry| {
+								for vote in votes {
+									if vote.entry.stories == entry.stories {
+										return false;
+									}
+								}
+								false
+							})
+							.collect::<Vec<_>>();
+						(Some(options), None)
+					} else {
+						(Some(submissions), None)
+					}
+				} else {
+					return Ok(HttpResponse::NotFound().body("User name not provided"));
+				}
+			}
 		};
 
 		let result = ExchangeReturn {
@@ -343,7 +372,7 @@ async fn cast_votes(
 
 #[delete("/delete-votes/{id}/{passphrase}")]
 async fn delete_votes(
-	path: web::Path<(i32, String)>, name: web::Query<ExchangeVote>,
+	path: web::Path<(i32, String)>, name: web::Query<User>,
 	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
 ) -> Result<impl Responder, Box<dyn std::error::Error>> {
 	let (id, passphrase) = path.into_inner();
