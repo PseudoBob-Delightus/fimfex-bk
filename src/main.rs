@@ -306,21 +306,21 @@ async fn get_exchange(
 				if let Some(query) = name {
 					let name = query.into_inner().name;
 					let submissions = exchange
-						.votes
+						.submissions
 						.iter()
 						.flat_map(|v| v.1)
-						.map(|entry| entry.entry.clone())
+						.cloned()
 						.collect::<Vec<_>>();
-					if let Some(votes) = exchange.votes.get(&name) {
+					if let Some(subs) = exchange.submissions.get(&name) {
 						let options = submissions
 							.into_iter()
 							.filter(|entry| {
-								for vote in votes {
-									if vote.entry.stories == entry.stories {
+								for sub in subs {
+									if sub.stories == entry.stories {
 										return false;
 									}
 								}
-								false
+								true
 							})
 							.collect::<Vec<_>>();
 						(Some(options), None)
@@ -328,7 +328,7 @@ async fn get_exchange(
 						(Some(submissions), None)
 					}
 				} else {
-					return Ok(HttpResponse::NotFound().body("User name not provided"));
+					(None, None)
 				}
 			}
 		};
