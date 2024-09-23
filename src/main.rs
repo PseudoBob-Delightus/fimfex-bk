@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::{delete, get, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
 use rand::Rng;
@@ -385,6 +386,13 @@ async fn main() -> std::io::Result<()> {
 	HttpServer::new(move || {
 		App::new()
 			.app_data(web::Data::new(exchanges.clone()))
+			.wrap(
+				Cors::default()
+					.allow_any_origin()
+					.allow_any_method()
+					.allow_any_header()
+					.max_age(3600),
+			)
 			.service(create_exchange)
 			.service(delete_exchange)
 			.service(change_stage)

@@ -9,6 +9,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+actix-cors = { version = "0.7.0" }
 actix-web = { version = "4.9.0" }
 pony = { git = "https://github.com/SilkRose/Pony" }
 rand = { version = "0.8.5" }
