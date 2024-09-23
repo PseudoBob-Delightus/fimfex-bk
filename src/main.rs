@@ -293,57 +293,52 @@ async fn get_exchange_admin(
 
 #[get("/get-exchange/{id}")]
 async fn get_exchange(
-	path: web::Path<i32>, name: Option<web::Query<User>>,
+	path: web::Path<i32>, query: Option<web::Query<User>>,
 	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
 ) -> Result<impl Responder, Box<dyn std::error::Error>> {
 	let id = path.into_inner();
 	let exchanges = data.lock().map_err(|_| "Failed to lock data")?;
-	if let Some(exchange) = exchanges.get(&id) {
-		let (sub, res) = match exchange.stage {
-			Stage::Submission | Stage::Selection => (None, None),
-			Stage::Frozen => (None, Some(exchange.results.clone())),
-			Stage::Voting => {
-				if let Some(query) = name {
-					let name = query.into_inner().name;
+	match exchanges.get(&id) {
+		Some(exchange) => {
+			let (submissions, results) = match exchange.stage {
+				Stage::Submission | Stage::Selection => (None, None),
+				Stage::Frozen => (None, Some(exchange.results.clone())),
+				Stage::Voting => {
 					let submissions = exchange
 						.submissions
 						.iter()
-						.flat_map(|v| v.1)
-						.cloned()
+						.flat_map(|v| v.1.clone())
 						.collect::<Vec<_>>();
-					if let Some(subs) = exchange.submissions.get(&name) {
-						let options = submissions
-							.into_iter()
-							.filter(|entry| {
-								for sub in subs {
-									if sub.stories == entry.stories {
-										return false;
-									}
-								}
-								true
-							})
-							.collect::<Vec<_>>();
-						(Some(options), None)
+
+					if let Some(query) = query {
+						let name = query.into_inner().name;
+
+						if let Some(subs) = exchange.submissions.get(&name) {
+							let filtered_options = submissions
+								.into_iter()
+								.filter(|entry| {
+									!subs.iter().any(|sub| sub.stories == entry.stories)
+								})
+								.collect::<Vec<_>>();
+							(Some(filtered_options), None)
+						} else {
+							(Some(submissions), None)
+						}
 					} else {
-						(Some(submissions), None)
+						(None, None)
 					}
-				} else {
-					(None, None)
 				}
-			}
-		};
-
-		let result = ExchangeReturn {
-			title: exchange.title.clone(),
-			id,
-			stage: exchange.stage,
-			submissions: sub,
-			results: res,
-		};
-
-		Ok(HttpResponse::Ok().json(result))
-	} else {
-		Ok(HttpResponse::NotFound().body("Exchange not found"))
+			};
+			let result = ExchangeReturn {
+				title: exchange.title.clone(),
+				id,
+				stage: exchange.stage,
+				submissions,
+				results,
+			};
+			Ok(HttpResponse::Ok().json(result))
+		}
+		None => Ok(HttpResponse::NotFound().body("Exchange not found")),
 	}
 }
 
