@@ -586,7 +586,17 @@ fn count_votes(
 				.filter(|ballot| ballot.entry == b.entry)
 				.count();
 
-			count_b.cmp(&count_a)
+			let mut rng = rand::thread_rng();
+			let comparison = count_b.cmp(&count_a);
+			if comparison == std::cmp::Ordering::Equal {
+				if rng.gen_bool(0.5) {
+					std::cmp::Ordering::Less
+				} else {
+					std::cmp::Ordering::Greater
+				}
+			} else {
+				comparison
+			}
 		});
 
 		for ballot in ballots {
