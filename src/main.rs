@@ -83,6 +83,19 @@ struct Vote {
 	entry: Entry,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Count {
+	votes: i32,
+	points: i32,
+	ballots: Vec<Ballot>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Ballot {
+	name: String,
+	priority: i32,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 enum Stage {
 	Submission,
@@ -539,19 +552,6 @@ fn generate_passphrase() -> String {
 	}
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Count {
-	votes: i32,
-	points: i32,
-	ballots: Vec<Ballot>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Ballot {
-	name: String,
-	priority: i32,
-}
-
 fn count_votes(exchange: &Exchange) {
 	let options = exchange
 		.votes
@@ -588,5 +588,17 @@ fn count_votes(exchange: &Exchange) {
 				counts.insert(vote.entry.stories, count);
 			}
 		}
+	}
+
+	let max_assignments = (exchange.votes.len() as f32 * exchange.assignment_factor) as i32;
+	let mut assignments = HashMap::<Vec<String>, Vec<String>>::new();
+	let mut results = HashMap::<String, Vec<Entry>>::new();
+
+	let mut data = counts.iter().collect::<Vec<_>>();
+	data.sort_by_key(|(_, count)| count.points);
+
+	for (entry, data) in data.iter().rev() {
+		let mut ballots = data.ballots.clone();
+		ballots.sort_by_key(|k| k.priority);
 	}
 }
