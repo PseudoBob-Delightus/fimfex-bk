@@ -10,8 +10,16 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ExchangeTitle {
+struct ExchangeSettings {
 	title: String,
+	user_max: Option<i32>,
+	assignment_factor: Option<f32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ResultSettings {
+	user_max: i32,
+	assignment_factor: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +55,8 @@ struct Exchange {
 	id: i32,
 	passphrase: String,
 	stage: Stage,
+	user_max: i32,
+	assignment_factor: f32,
 	submissions: HashMap<String, Vec<Entry>>,
 	votes: HashMap<String, Vec<Vote>>,
 	results: HashMap<String, Vec<Entry>>,
@@ -82,9 +92,9 @@ enum Stage {
 
 #[post("/create-exchange")]
 async fn create_exchange(
-	title: web::Query<ExchangeTitle>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+	settings: web::Query<ExchangeSettings>, data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
 ) -> Result<impl Responder, Box<dyn std::error::Error>> {
-	let title = title.into_inner().title;
+	let settings = settings.into_inner();
 	let mut exchanges = data.lock().unwrap();
 	let id = if exchanges.is_empty() {
 		1
@@ -92,10 +102,12 @@ async fn create_exchange(
 		exchanges.clone().into_keys().max().unwrap() + 1
 	};
 	let exchange = Exchange {
-		title: title.clone(),
+		title: settings.title.clone(),
 		id,
 		passphrase: generate_passphrase(),
 		stage: Stage::Submission,
+		user_max: settings.user_max.unwrap_or(2),
+		assignment_factor: settings.assignment_factor.unwrap_or(0.5),
 		submissions: HashMap::new(),
 		votes: HashMap::new(),
 		results: HashMap::new(),
@@ -134,7 +146,7 @@ async fn change_stage(
 				if exchange.votes.is_empty() {
 					return Ok(HttpResponse::BadRequest().body("No votes to count"));
 				}
-				// TODO: Add voting algorithm
+				// Add voting algorithm
 			}
 			(Stage::Selection, Stage::Voting) => exchange.results = HashMap::new(),
 			(Stage::Selection, Stage::Frozen) => {} // Results are final
