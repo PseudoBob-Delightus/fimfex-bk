@@ -18,8 +18,8 @@ struct ExchangeSettings {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResultSettings {
-	user_max: i32,
-	assignment_factor: f32,
+	user_max: Option<i32>,
+	assignment_factor: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,9 +184,13 @@ async fn update_results(
 		if exchange.stage != Stage::Selection {
 			return Ok(HttpResponse::BadRequest().body("Stage is not in selection"));
 		}
+		if let Some(max) = settings.user_max {
+			exchange.user_max = max;
+		}
+		if let Some(factor) = settings.assignment_factor {
+			exchange.assignment_factor = factor;
+		}
 
-		exchange.user_max = settings.user_max;
-		exchange.assignment_factor = settings.assignment_factor;
 		exchange.results = HashMap::new(); // Add voting algorithm
 
 		let path = format!("./exchanges/{id}.json");
