@@ -1,6 +1,7 @@
 use actix_cors::Cors;
 use actix_web::{delete, get, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
+use pony::traits::OrderedVector;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -541,26 +542,51 @@ fn generate_passphrase() -> String {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Count {
 	votes: i32,
-	priorities: Vec<i32>,
+	points: i32,
+	ballots: Vec<Ballot>,
 }
 
-fn count_votes(votes: HashMap<String, Vec<Vote>>) {
-	let mut submissions = HashMap::<Vec<String>, Count>::new();
-	for (_, votes) in votes {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Ballot {
+	name: String,
+	priority: i32,
+}
+
+fn count_votes(exchange: &Exchange) {
+	let options = exchange
+		.votes
+		.iter()
+		.flat_map(|(_, votes)| votes.clone())
+		.map(|vote| vote.entry.stories)
+		.collect::<Vec<_>>()
+		.sort_and_dedup_vec();
+
+	let len = options.len() as i32;
+
+	let mut counts = HashMap::<Vec<String>, Count>::new();
+
+	for (voter, votes) in exchange.votes.clone() {
 		for vote in votes {
-			if let Some(ref mut entry) = submissions.get_mut(&vote.entry.stories) {
+			if let Some(ref mut entry) = counts.get_mut(&vote.entry.stories) {
 				entry.votes += 1;
-				entry.priorities.push(vote.priority);
-			} else {
-				let ballot = Count {
-					votes: 1,
-					priorities: vec![vote.priority],
+				entry.points += len - vote.priority + 1;
+				let ballot = Ballot {
+					name: voter.clone(),
+					priority: vote.priority,
 				};
-				submissions.insert(vote.entry.stories, ballot);
+				entry.ballots.push(ballot);
+			} else {
+				let ballot = Ballot {
+					name: voter.clone(),
+					priority: vote.priority,
+				};
+				let count = Count {
+					votes: 1,
+					points: len - vote.priority + 1,
+					ballots: vec![ballot],
+				};
+				counts.insert(vote.entry.stories, count);
 			}
 		}
-	}
-	for candidate in submissions {
-		//
 	}
 }
