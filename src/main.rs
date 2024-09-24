@@ -1,7 +1,7 @@
 use actix_cors::Cors;
 use actix_web::{delete, get, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
-use pony::traits::OrderedVector;
+use pony::traits::{compare, OrderedVector};
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -84,16 +84,9 @@ struct Vote {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct Count {
-	votes: i32,
-	points: i32,
-	ballots: Vec<Ballot>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Ballot {
 	name: String,
-	priority: i32,
+	entry: Entry,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -552,7 +545,7 @@ fn generate_passphrase() -> String {
 	}
 }
 
-fn count_votes(exchange: &Exchange) {
+fn count_votes(exchange: &Exchange) -> Result<(), Box<dyn std::error::Error>> {
 	let options = exchange
 		.votes
 		.iter()
@@ -563,42 +556,55 @@ fn count_votes(exchange: &Exchange) {
 
 	let len = options.len() as i32;
 
-	let mut counts = HashMap::<Vec<String>, Count>::new();
-
-	for (voter, votes) in exchange.votes.clone() {
-		for vote in votes {
-			if let Some(ref mut entry) = counts.get_mut(&vote.entry.stories) {
-				entry.votes += 1;
-				entry.points += len - vote.priority + 1;
-				let ballot = Ballot {
-					name: voter.clone(),
-					priority: vote.priority,
-				};
-				entry.ballots.push(ballot);
-			} else {
-				let ballot = Ballot {
-					name: voter.clone(),
-					priority: vote.priority,
-				};
-				let count = Count {
-					votes: 1,
-					points: len - vote.priority + 1,
-					ballots: vec![ballot],
-				};
-				counts.insert(vote.entry.stories, count);
-			}
-		}
-	}
-
-	let max_assignments = (exchange.votes.len() as f32 * exchange.assignment_factor) as i32;
+	let max_assignments = (exchange.votes.len() as f32 * exchange.assignment_factor).ceil() as i32;
 	let mut assignments = HashMap::<Vec<String>, Vec<String>>::new();
 	let mut results = HashMap::<String, Vec<Entry>>::new();
 
-	let mut data = counts.iter().collect::<Vec<_>>();
-	data.sort_by_key(|(_, count)| count.points);
+	for i in 1..=len {
+		let mut ballots = Vec::new();
+		for (voter, votes) in exchange.votes.iter() {
+			for vote in votes {
+				if vote.priority == i {
+					let ballot = Ballot {
+						name: voter.to_string(),
+						entry: vote.entry.clone(),
+					};
+					ballots.push(ballot);
+				}
+			}
+		}
+		let votes = ballots.clone();
+		ballots.sort_by(|a, b| {
+			let count_a = votes
+				.iter()
+				.filter(|ballot| ballot.entry == a.entry)
+				.count();
+			let count_b = votes
+				.iter()
+				.filter(|ballot| ballot.entry == b.entry)
+				.count();
 
-	for (entry, data) in data.iter().rev() {
-		let mut ballots = data.ballots.clone();
-		ballots.sort_by_key(|k| k.priority);
+			count_b.cmp(&count_a)
+		});
+
+		for ballot in ballots {
+			if let Some(assiment) = assignments.get_mut(&ballot.entry.stories) {
+				if assiment.len() as i32 > max_assignments {
+					continue;
+				} else {
+					assiment.push(ballot.name.clone());
+				}
+			}
+			if let Some(result) = results.get_mut(&ballot.name) {
+				if result.len() as i32 > exchange.user_max {
+					continue;
+				} else {
+					result.push(ballot.entry.clone());
+				}
+			}
+			assignments.insert(ballot.entry.stories.clone(), vec![ballot.name.clone()]);
+			results.insert(ballot.name, vec![ballot.entry]);
+		}
 	}
+	Ok(())
 }
