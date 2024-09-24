@@ -169,6 +169,36 @@ async fn change_stage(
 	}
 }
 
+#[patch("/update-results/{id}/{passphrase}")]
+async fn update_results(
+	path: web::Path<(i32, String)>, settings: web::Query<ResultSettings>,
+	data: web::Data<Arc<Mutex<HashMap<i32, Exchange>>>>,
+) -> Result<impl Responder, Box<dyn std::error::Error>> {
+	let (id, passphrase) = path.into_inner();
+	let settings = settings.into_inner();
+	let mut exchanges = data.lock().map_err(|_| "Failed to lock data")?;
+	if let Some(ref mut exchange) = exchanges.get_mut(&id) {
+		if exchange.passphrase != passphrase {
+			return Ok(HttpResponse::Unauthorized().body("Invalid passphrase"));
+		}
+		if exchange.stage != Stage::Selection {
+			return Ok(HttpResponse::BadRequest().body("Stage is not in selection"));
+		}
+
+		exchange.user_max = settings.user_max;
+		exchange.assignment_factor = settings.assignment_factor;
+		exchange.results = HashMap::new(); // Add voting algorithm
+
+		let path = format!("./exchanges/{id}.json");
+		let contents = serde_json::to_string_pretty(&exchange)?;
+		fs::write(path, contents)?;
+
+		Ok(HttpResponse::Ok().json(exchange))
+	} else {
+		Ok(HttpResponse::NotFound().body("Exchange not found"))
+	}
+}
+
 #[post("/add-stories/{id}")]
 async fn add_submission(
 	path: web::Path<i32>, entry: web::Json<Submission>,
@@ -438,6 +468,7 @@ async fn main() -> std::io::Result<()> {
 			.service(get_exchange)
 			.service(cast_votes)
 			.service(delete_votes)
+			.service(update_results)
 	})
 	//                  pony
 	.bind(("127.0.0.1", 7669))?
