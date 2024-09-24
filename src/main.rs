@@ -1,7 +1,7 @@
 use actix_cors::Cors;
 use actix_web::{delete, get, patch, post, web, App, HttpResponse, HttpServer, Responder};
 use pony::fs::find_files_in_dir;
-use pony::traits::{compare, OrderedVector};
+use pony::traits::OrderedVector;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -153,7 +153,7 @@ async fn change_stage(
 				if exchange.votes.is_empty() {
 					return Ok(HttpResponse::BadRequest().body("No votes to count"));
 				}
-				// Add voting algorithm
+				exchange.results = count_votes(exchange)?;
 			}
 			(Stage::Selection, Stage::Voting) => exchange.results = HashMap::new(),
 			(Stage::Selection, Stage::Frozen) => {} // Results are final
@@ -198,7 +198,7 @@ async fn update_results(
 			exchange.assignment_factor = factor;
 		}
 
-		exchange.results = HashMap::new(); // Add voting algorithm
+		exchange.results = count_votes(exchange)?;
 
 		let path = format!("./exchanges/{id}.json");
 		let contents = serde_json::to_string_pretty(&exchange)?;
@@ -545,7 +545,9 @@ fn generate_passphrase() -> String {
 	}
 }
 
-fn count_votes(exchange: &Exchange) -> Result<(), Box<dyn std::error::Error>> {
+fn count_votes(
+	exchange: &Exchange,
+) -> Result<HashMap<String, Vec<Entry>>, Box<dyn std::error::Error>> {
 	let options = exchange
 		.votes
 		.iter()
@@ -606,5 +608,5 @@ fn count_votes(exchange: &Exchange) -> Result<(), Box<dyn std::error::Error>> {
 			results.insert(ballot.name, vec![ballot.entry]);
 		}
 	}
-	Ok(())
+	Ok(results)
 }
