@@ -482,7 +482,7 @@ async fn main() -> std::io::Result<()> {
 			.service(update_results)
 	})
 	//                  pony
-	.bind(("127.0.0.1", 7669))?
+	.bind(("0.0.0.0", 7669))?
 	.run()
 	.await
 }
